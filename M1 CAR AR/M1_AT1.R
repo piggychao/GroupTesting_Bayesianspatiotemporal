@@ -4,7 +4,7 @@
 #   Group Testing Data Under AT Protocol
 #     With Unknown Se&Sp 
 #
-#     CAR-AR Model
+#     CAR-AR(1) Model
 #
 ############################################################
 library(parallel)
@@ -26,14 +26,14 @@ simu_func <- function(seed){
   set.seed(seed)
   ## Part I. Data Generation
   ## 1. Generate spatial random effects
-  ### Create an adjacency matrix - W matrix
+  ### Create an adjacency/weight matrix - W matrix
   ### Use the South Carolina State as an example 
   # de <- counties(state = "SC") #download a shapefile of counties directly into R
   # de.nb <- poly2nb(as(de, "Spatial")) #convert shapefile into neighbor/spatial object 
   # de.Wmatrix <-  nb2mat(de.nb, style = "B") #create an adjacency matrix - W matrix
   
   ### Alternative: import W matrix directly
-  de.Wmatrix <-  readRDS("Wmatrix.rds") #create an adjacency matrix - W matrix
+  de.Wmatrix <-  readRDS("Wmatrix.rds") # W matrix
   
   S_r <- dim(de.Wmatrix)[1] #number of regions
   W_mtx <- matrix(as.numeric(de.Wmatrix), nrow = S_r)
@@ -62,7 +62,7 @@ simu_func <- function(seed){
   tempo_rand <- mvrnorm(1, mu = rep(0, Tps), 
                         Sigma = sigma_r_t/(1-phi_t^2)* ar1_cor(Tps,phi_t))
   tempo_rand <- tempo_rand - mean(tempo_rand)
-  tempo_rand_new <- rnorm(1, mean = tempo_rand[Tps], sd=sqrt(sigma_r_t))
+  tempo_rand_new <- rnorm(1, mean = phi_t*tempo_rand[Tps], sd=sqrt(sigma_r_t))
   
   ## 2. Generate individual data with spatial random effects
   N <- 4000 #number of total observations

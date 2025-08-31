@@ -4,7 +4,7 @@
 #   Group Testing Data Under IT Protocol
 #      With Known Se&Sp 
 #
-#        CAR-AR Model
+#        CAR-AR(1) Model
 #
 ############################################################
 
@@ -63,7 +63,7 @@ simu_func <- function(seed){
   tempo_rand <- mvrnorm(1, mu = rep(0, Tps), 
                         Sigma = sigma_r_t/(1-phi_t^2)* ar1_cor(Tps,phi_t))
   tempo_rand <- tempo_rand - mean(tempo_rand)
-  tempo_rand_new <- rnorm(1, mean = tempo_rand[Tps], sd=sqrt(sigma_r_t))
+  tempo_rand_new <- rnorm(1, mean = phi*tempo_rand[Tps], sd=sqrt(sigma_r_t))
 
   ## 2. Generate individual data with spatial random effects
   N <- 4000 #number of total observations
@@ -242,9 +242,9 @@ simu_func <- function(seed){
   return(results)
 }
 
-nm_set <- 2 #randomly choose a set number
+nm_set <- 3 #randomly choose a set number
 n_sim <- 500
 output <- mclapply(((nm_set-1)*n_sim+1):(nm_set*n_sim), 
                    simu_func, mc.cores = nm_cores)
 time <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
-saveRDS(output, file = paste0('CARAR_IT1_', time,'.rds'))
+saveRDS(output, file = paste0('CARAR_IT_', time,'.rds'))

@@ -4,7 +4,7 @@
 #   Group Testing Data Under DT Protocol
 #     With Unknown Se&Sp 
 #
-#   CAR-AR Model
+#   CAR-AR(1) Model
 # 
 ############################################################
 library(parallel)
@@ -19,37 +19,38 @@ rm(list = ls())
 ### Call Rcpp function for sampling y tilde
 Rcpp::sourceCpp('../sampletildey_DT.cpp')
 
-nm_cores <- 28
+nm_cores <- 28 #number of CPU cores used for parallel computing
 
+## Input: seed
 simu_func <- function(seed){
   set.seed(seed)
   ## Part I. Data Generation
   ## 1. Generate spatial random effects
-  ### Create an adjacency matrix - W matrix
+  ### Create an adjacency(weight) matrix - W matrix
   ### Use the South Carolina State as an example 
   # de <- counties(state = "SC") #download a shapefile of counties directly into R
   # de.nb <- poly2nb(as(de, "Spatial")) #convert shapefile into neighbor/spatial object 
   # de.Wmatrix <-  nb2mat(de.nb, style = "B") #create an adjacency matrix - W matrix
   
   ### Alternative: import W matrix directly
-  de.Wmatrix <-  readRDS("Wmatrix.rds") #create an adjacency matrix - W matrix
+  de.Wmatrix <-  readRDS("Wmatrix.rds") #W matrix
   
   S_r <- dim(de.Wmatrix)[1] #number of regions
   W_mtx <- matrix(as.numeric(de.Wmatrix), nrow = S_r)
   W_mtx_spar <- as.spam(W_mtx)
   D_mtx <- diag(apply(W_mtx, 1, sum)) #calculate D matrix
   D_mtx_spar <- as.spam(D_mtx)
-  rho <- 0.9 #true rho in random effects
-  tau_sqrt_tr <- 0.5 #true tau_sqrt in random effects
+  rho <- 0.9 #true rho in spatial random effects
+  tau_sqrt_tr <- 0.5 #true tau_sqrt in spatial random effects
   sigma_r <- tau_sqrt_tr * solve(D_mtx_spar - rho*W_mtx_spar)
   spatial_rand <- mvrnorm(1, mu = rep(0, S_r), Sigma = sigma_r)
   spatial_rand <- spatial_rand - mean(spatial_rand)
   
   ## 2. Generate temporal random effects 
-  Tps <- 10 #used in Scenario 1, Scenario 2
-  # Tps <- 5 #used in Scenario 3
-  sigma_r_t <- 0.25
-  phi_t <- 0.8
+  Tps <- 10 #Number of time points, T=10 used in Scenario 1, Scenario 2
+  # Tps <- 5 #T=5, used in Scenario 3
+  sigma_r_t <- 0.25 #true sigma_sqrt in temporal random effects
+  phi_t <- 0.8 #true phi in temporal random effects
   
   ## Generate AR1 structure
   ar1_cor <- function(n, rho) {
@@ -61,7 +62,7 @@ simu_func <- function(seed){
   tempo_rand <- mvrnorm(1, mu = rep(0, Tps), 
                         Sigma = sigma_r_t/(1-phi_t^2)* ar1_cor(Tps,phi_t))
   tempo_rand <- tempo_rand - mean(tempo_rand)
-  tempo_rand_new <- rnorm(1, mean = tempo_rand[Tps], sd=sqrt(sigma_r_t))
+  tempo_rand_new <- rnorm(1, mean = phi_t*tempo_rand[Tps], sd=sqrt(sigma_r_t))
   
   ## 2. Generate individual data with spatial random effects
   N <- 4000 #number of total observations
@@ -70,8 +71,8 @@ simu_func <- function(seed){
   #assign N individuals into T time points randomly 
   time_idx <- sample(1:Tps, size = N, replace = TRUE)
   
-  Se_true <- c(0.95,0.98) #sensitivity for pool&individual
-  Sp_true <- c(0.98,0.99) #specificity for pool&individual
+  Se_true <- c(0.95,0.98) #true sensitivity for pool&individual
+  Sp_true <- c(0.98,0.99) #true specificity for pool&individual
   
   ## Generate individual data
   beta_true <- c(-4, 1, -1, 1)   #prevalence = 7-7.5% (used in Scenario 1, Scenario 3)
@@ -150,7 +151,8 @@ simu_func <- function(seed){
     n <- dim(x)[1]
     p <- dim(x)[2]
     pool_num <- length(z)
-    pool_size <- n/pool_num
+    pool_size <- ceiling(n/pool_num)
+    pool_cap <- pool_num * pool_size #pool capacity
     Se_p <- Se1 #initial pool_Se
     Sp_p <- Sp1 #initial pool_Sp
     Se_i <- Se2 #initial ind_Se
@@ -183,9 +185,15 @@ simu_func <- function(seed){
                               c(Se_p, Se_i), c(Sp_p, Sp_i))
       y_init <- ytilde
       
+      ### if the last pool is not full, 
+      ### negative objections will be filled in for calculating the response of last pool
+      if (n < pool_cap){
+        y_init1 <- c(y_init, rep(0, pool_cap-n))
+      } else {y_init1 <- y_init}
+      
       ## Sampling Sensitivity and Specificity
       ### Pool Se and Sp 
-      z_matrix <- matrix(y_init, ncol = pool_size, byrow = TRUE)
+      z_matrix <- matrix(y_init1, ncol = pool_size, byrow = TRUE)
       z_til <- ifelse(rowSums(z_matrix)>0, 1, 0)
       Se_p <- rbeta(1, sum(z * z_til) + accuracy_init,
                     sum((1-z) * z_til) + accuracy_init)
@@ -193,7 +201,7 @@ simu_func <- function(seed){
                     sum(z * (1-z_til)) + accuracy_init)
       ### Individual Se and Sp
       #find the y_tilde for re-test individuals
-      y_til_rt <- y_init[pool_ind %in% retest_pool_idx]
+      y_til_rt <- y_init1[pool_ind %in% retest_pool_idx]
       Se_i <- rbeta(1, sum(retest_y * y_til_rt) + accuracy_init,
                     sum((1-retest_y) * y_til_rt) + accuracy_init)
       Sp_i <- rbeta(1, sum((1-retest_y) * (1-y_til_rt)) + accuracy_init,
@@ -291,10 +299,10 @@ simu_func <- function(seed){
   return(results)
 }
 
-nm_set <- 2 #randomly choose a set number
+nm_set <- 1 #randomly choose a set number
 n_sim <- 500
 output <- mclapply(((nm_set-1)*n_sim+1):(nm_set*n_sim), 
                    simu_func, mc.cores = nm_cores)
 time <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
-saveRDS(output, file = paste0('CARAR_DT1_', time,'.rds'))
+saveRDS(output, file = paste0('CARAR_DT_', time,'.rds'))
 
